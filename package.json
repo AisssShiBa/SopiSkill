@@ -1,0 +1,20 @@
+{
+  "name": "sopiskill",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "private": true,
+  "packageManager": "npm@11.21.2",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "packages/*"
+  ]
+}
