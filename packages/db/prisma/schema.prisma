@@ -1,0 +1,474 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// ENUMS - keep names/values aligned with packages/shared
+// ============================================================
+
+enum CourseStatus {
+  draft
+  awaiting_approval
+  generating
+  ready
+  failed
+  archived
+
+  @@map("course_status")
+}
+
+enum QuestionStatus {
+  draft
+  active
+  archived
+
+  @@map("question_status")
+}
+
+enum QuestionType {
+  single_choice
+
+  @@map("question_type")
+}
+
+enum MappingStatus {
+  draft
+  approved
+  retired
+
+  @@map("mapping_status")
+}
+
+enum MasteryStatus {
+  insufficient_data
+  learning
+  proficient
+  needs_review
+
+  @@map("mastery_status")
+}
+
+enum PolicyAction {
+  review_skill
+  practice_skill
+  next_lesson
+  mini_pretest
+  continue_learning
+
+  @@map("policy_action")
+}
+
+enum GenerationJobStatus {
+  queued
+  running
+  succeeded
+  failed
+  cancelled
+
+  @@map("generation_job_status")
+}
+
+enum TargetLevel {
+  beginner
+  intermediate
+  advanced
+
+  @@map("target_level")
+}
+
+enum TutorRole {
+  user
+  assistant
+  system
+
+  @@map("tutor_role")
+}
+
+enum TutorMessageKind {
+  chat
+  hint
+
+  @@map("tutor_message_kind")
+}
+
+// ============================================================
+// A. USER + AUTH
+// ============================================================
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique @db.VarChar(320)
+  passwordHash String   @map("password_hash") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  courses            Course[]
+  quizAttempts       QuizAttempt[]
+  learningEvents     LearningEvent[]
+  learnerSkillStates LearnerSkillState[]
+  policyDecisions    PolicyDecision[]
+  refreshSessions    RefreshSession[]
+  generationJobs     GenerationJob[]
+  tutorSessions      TutorSession[]
+  tutorHintEvents    TutorHintEvent[]
+
+  @@map("users")
+}
+
+// Refresh token is stored only as a server-side hash, never plaintext.
+model RefreshSession {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash") @db.VarChar(128)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  rotatedAt DateTime? @map("rotated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, expiresAt])
+  @@map("refresh_sessions")
+}
+
+// ============================================================
+// B. COURSE / LESSON / QUESTION + IMMUTABLE VERSIONS
+// ============================================================
+
+model Course {
+  id          String       @id @default(uuid()) @db.Uuid
+  ownerId     String       @map("owner_id") @db.Uuid
+  title       String       @db.VarChar(200)
+  description String?      @db.Text
+  status      CourseStatus @default(draft)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  owner           User                  @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  lessons         Lesson[]
+  skills          Skill[]
+  mappingVersions SkillMappingVersion[]
+  policyDecisions PolicyDecision[]
+  generationJobs  GenerationJob[]
+  tutorSessions   TutorSession[]
+
+  @@index([ownerId, createdAt(sort: Desc)])
+  @@map("courses")
+}
+
+model Lesson {
+  id        String   @id @default(uuid()) @db.Uuid
+  courseId  String   @map("course_id") @db.Uuid
+  title     String   @db.VarChar(200)
+  position  Int
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  course    Course     @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  questions Question[]
+
+  @@unique([courseId, position])
+  @@map("lessons")
+}
+
+// Stable identity of a question; its actual content lives in QuestionVersion.
+model Question {
+  id        String         @id @default(uuid()) @db.Uuid
+  lessonId  String         @map("lesson_id") @db.Uuid
+  status    QuestionStatus @default(draft)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  lesson   Lesson            @relation(fields: [lessonId], references: [id], onDelete: Restrict)
+  versions QuestionVersion[]
+
+  @@index([lessonId])
+  @@map("questions")
+}
+
+// Never overwrite a version used by a submitted attempt.
+// options JSONB: [{"id":"option-a","text":"..."}, ...]
+// answerKey is PRIVATE; only backend grading may read it.
+model QuestionVersion {
+  id            String       @id @default(uuid()) @db.Uuid
+  questionId    String       @map("question_id") @db.Uuid
+  versionNumber Int          @map("version_number")
+  type          QuestionType @default(single_choice)
+  prompt        String       @db.Text
+  options       Json         @db.JsonB
+  answerKey     String       @map("answer_key") @db.VarChar(128)
+  explanation   String?      @db.Text
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  question        Question         @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  skillMappings   QuestionSkill[]
+  quizAttempts    QuizAttempt[]
+  learningEvents  LearningEvent[]
+  tutorHintEvents TutorHintEvent[]
+
+  @@unique([questionId, versionNumber])
+  @@map("question_versions")
+}
+
+// ============================================================
+// C. KNOWLEDGE COMPONENTS (KC), DAG, MAPPING SNAPSHOTS
+// ============================================================
+
+model Skill {
+  id          String  @id @default(uuid()) @db.Uuid
+  courseId    String  @map("course_id") @db.Uuid
+  skillKey    String  @map("skill_key") @db.VarChar(100)
+  name        String  @db.VarChar(200)
+  description String? @db.Text
+
+  course             Course              @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  dependentEdges     SkillPrerequisite[] @relation("DependentSkill")
+  prerequisiteEdges  SkillPrerequisite[] @relation("PrerequisiteSkill")
+  questionMappings   QuestionSkill[]
+  learningEvents     LearningEvent[]
+  learnerSkillStates LearnerSkillState[]
+  policyDecisions    PolicyDecision[]
+  tutorHintEvents    TutorHintEvent[]
+
+  @@unique([courseId, skillKey])
+  @@map("skills")
+}
+
+// Version covers BOTH prerequisite edges and question-to-skill mappings.
+model SkillMappingVersion {
+  id            String        @id @default(uuid()) @db.Uuid
+  courseId      String        @map("course_id") @db.Uuid
+  versionNumber Int           @map("version_number")
+  status        MappingStatus @default(draft)
+  approvedAt    DateTime?     @map("approved_at") @db.Timestamptz(3)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  course         Course              @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  prerequisites  SkillPrerequisite[]
+  questionSkills QuestionSkill[]
+  quizAttempts   QuizAttempt[]
+  learningEvents LearningEvent[]
+
+  @@unique([courseId, versionNumber])
+  @@map("skill_mapping_versions")
+}
+
+// Direction: prerequisiteSkillId -> skillId (skillId DEPENDS on prerequisite).
+model SkillPrerequisite {
+  id                  String @id @default(uuid()) @db.Uuid
+  mappingVersionId    String @map("mapping_version_id") @db.Uuid
+  skillId             String @map("skill_id") @db.Uuid
+  prerequisiteSkillId String @map("prerequisite_skill_id") @db.Uuid
+
+  mappingVersion    SkillMappingVersion @relation(fields: [mappingVersionId], references: [id], onDelete: Restrict)
+  skill             Skill               @relation("DependentSkill", fields: [skillId], references: [id], onDelete: Restrict)
+  prerequisiteSkill Skill               @relation("PrerequisiteSkill", fields: [prerequisiteSkillId], references: [id], onDelete: Restrict)
+
+  @@unique([mappingVersionId, skillId, prerequisiteSkillId])
+  @@index([skillId])
+  @@index([prerequisiteSkillId])
+  @@map("skill_prerequisites")
+}
+
+// MVP: exactly one primary skill per approved QuestionVersion + MappingVersion.
+// Database schema below guarantees no duplicate triple, NOT the exactly-one rule.
+model QuestionSkill {
+  id                String  @id @default(uuid()) @db.Uuid
+  mappingVersionId  String  @map("mapping_version_id") @db.Uuid
+  questionVersionId String  @map("question_version_id") @db.Uuid
+  skillId           String  @map("skill_id") @db.Uuid
+  isPrimary         Boolean @default(false) @map("is_primary")
+
+  mappingVersion  SkillMappingVersion @relation(fields: [mappingVersionId], references: [id], onDelete: Restrict)
+  questionVersion QuestionVersion     @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  skill           Skill               @relation(fields: [skillId], references: [id], onDelete: Restrict)
+
+  @@unique([mappingVersionId, questionVersionId, skillId])
+  @@index([mappingVersionId, questionVersionId])
+  @@index([skillId])
+  @@map("question_skills")
+}
+
+// ============================================================
+// D. QUIZ SUBMISSIONS + APPEND-ONLY LEARNING EVIDENCE
+// ============================================================
+
+model QuizAttempt {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  questionVersionId String   @map("question_version_id") @db.Uuid
+  mappingVersionId  String   @map("mapping_version_id") @db.Uuid
+  idempotencyKey    String   @map("idempotency_key") @db.Uuid
+  selectedOptionId  String   @map("selected_option_id") @db.VarChar(128)
+  isCorrect         Boolean  @map("is_correct")
+  hintsUsed         Int      @default(0) @map("hints_used")
+  submittedAt       DateTime @default(now()) @map("submitted_at") @db.Timestamptz(3)
+
+  user            User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  questionVersion QuestionVersion     @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  mappingVersion  SkillMappingVersion @relation(fields: [mappingVersionId], references: [id], onDelete: Restrict)
+  learningEvent   LearningEvent?
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, submittedAt(sort: Desc)])
+  @@index([questionVersionId])
+  @@map("quiz_attempts")
+}
+
+// Immutable evidence per attempt (1:0..1 in MVP).
+// Changes to historical observations must follow an audited correction process.
+model LearningEvent {
+  id                String   @id @default(uuid()) @db.Uuid
+  attemptId         String   @unique @map("attempt_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  questionVersionId String   @map("question_version_id") @db.Uuid
+  skillId           String   @map("skill_id") @db.Uuid
+  mappingVersionId  String   @map("mapping_version_id") @db.Uuid
+  isCorrect         Boolean  @map("is_correct")
+  hintsUsed         Int      @map("hints_used")
+  occurredAt        DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+
+  attempt         QuizAttempt         @relation(fields: [attemptId], references: [id], onDelete: Restrict)
+  user            User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  questionVersion QuestionVersion     @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  skill           Skill               @relation(fields: [skillId], references: [id], onDelete: Restrict)
+  mappingVersion  SkillMappingVersion @relation(fields: [mappingVersionId], references: [id], onDelete: Restrict)
+
+  @@index([userId, skillId, occurredAt(sort: Desc)])
+  @@index([mappingVersionId])
+  @@map("learning_events")
+}
+
+// ============================================================
+// E. CURRENT MASTERY SNAPSHOT + EXPLAINABLE ADAPTIVE POLICY
+// ============================================================
+
+model LearnerSkillState {
+  id           String        @id @default(uuid()) @db.Uuid
+  userId       String        @map("user_id") @db.Uuid
+  skillId      String        @map("skill_id") @db.Uuid
+  status       MasteryStatus @default(insufficient_data)
+  modelType    String        @default("rule_based") @map("model_type") @db.VarChar(50)
+  modelVersion String        @default("rule-v1") @map("model_version") @db.VarChar(50)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  skill Skill @relation(fields: [skillId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, skillId])
+  @@map("learner_skill_states")
+}
+
+model PolicyDecision {
+  id            String       @id @default(uuid()) @db.Uuid
+  userId        String       @map("user_id") @db.Uuid
+  courseId      String       @map("course_id") @db.Uuid
+  targetSkillId String?      @map("target_skill_id") @db.Uuid
+  action        PolicyAction
+  reasonCode    String       @map("reason_code") @db.VarChar(100)
+  message       String?      @db.Text
+  policyVersion String       @map("policy_version") @db.VarChar(50)
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user        User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  course      Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  targetSkill Skill? @relation(fields: [targetSkillId], references: [id], onDelete: Restrict)
+
+  @@index([userId, courseId, createdAt(sort: Desc)])
+  @@index([targetSkillId])
+  @@map("policy_decisions")
+}
+
+// ============================================================
+// F. COURSE GENERATION JOB METADATA (BullMQ still manages queue)
+// ============================================================
+
+model GenerationJob {
+  id             String              @id @default(uuid()) @db.Uuid
+  courseId       String              @map("course_id") @db.Uuid
+  userId         String              @map("user_id") @db.Uuid
+  idempotencyKey String              @map("idempotency_key") @db.Uuid
+  learningGoal   String              @map("learning_goal") @db.Text
+  targetLevel    TargetLevel         @map("target_level")
+  lessonCount    Int                 @map("lesson_count")
+  status         GenerationJobStatus @default(queued)
+  progress       Int                 @default(0)
+  errorCode      String?             @map("error_code") @db.VarChar(100)
+  provider       String?             @db.VarChar(100)
+  modelName      String?             @map("model_name") @db.VarChar(100)
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  startedAt      DateTime?           @map("started_at") @db.Timestamptz(3)
+  finishedAt     DateTime?           @map("finished_at") @db.Timestamptz(3)
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, idempotencyKey])
+  @@index([courseId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("generation_jobs")
+}
+
+// ============================================================
+// G. AI TUTOR (lightweight persistence for MVP)
+// ============================================================
+
+model TutorSession {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  courseId  String   @map("course_id") @db.Uuid
+  title     String?  @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  course     Course           @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  messages   TutorMessage[]
+  hintEvents TutorHintEvent[]
+
+  @@index([userId, courseId, createdAt(sort: Desc)])
+  @@map("tutor_sessions")
+}
+
+model TutorMessage {
+  id        String           @id @default(uuid()) @db.Uuid
+  sessionId String           @map("session_id") @db.Uuid
+  role      TutorRole
+  kind      TutorMessageKind @default(chat)
+  content   String           @db.Text
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  session   TutorSession    @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  hintEvent TutorHintEvent?
+
+  @@index([sessionId, createdAt])
+  @@map("tutor_messages")
+}
+
+// Server-controlled hint event; never trust a client-provided hintsUsed count.
+// Counting hints per individual attempt needs a well-defined attempt context
+// in the Tutor/Quiz workflow before implementing production scoring.
+model TutorHintEvent {
+  id                String   @id @default(uuid()) @db.Uuid
+  sessionId         String   @map("session_id") @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  messageId         String?  @unique @map("message_id") @db.Uuid
+  questionVersionId String?  @map("question_version_id") @db.Uuid
+  skillId           String?  @map("skill_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  session         TutorSession     @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  message         TutorMessage?    @relation(fields: [messageId], references: [id], onDelete: Restrict)
+  questionVersion QuestionVersion? @relation(fields: [questionVersionId], references: [id], onDelete: Restrict)
+  skill           Skill?           @relation(fields: [skillId], references: [id], onDelete: Restrict)
+
+  @@index([userId, questionVersionId, createdAt])
+  @@map("tutor_hint_events")
+}
