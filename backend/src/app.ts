@@ -1,10 +1,15 @@
-
 import express from "express";
 import helmet from "helmet";
 
+import { errorHandler, notFoundHandler } from "./middlewares/error-handler.js";
+import { requestIdMiddleware } from "./middlewares/request-id.js";
+import { courseRouter } from "./routes/course.routes.js";
 import { healthRouter } from "./routes/health.routes.js";
 
 export const app = express();
+
+// Request tracing ID (UUID v4)
+app.use(requestIdMiddleware);
 
 // Security headers
 app.use(helmet());
@@ -14,3 +19,10 @@ app.use(express.json({ limit: "1mb" }));
 
 // Health routes
 app.use("/api/v1/health", healthRouter);
+
+// Course routes
+app.use("/api/v1/courses", courseRouter);
+
+// Standardized 404 & error responses
+app.use(notFoundHandler);
+app.use(errorHandler);

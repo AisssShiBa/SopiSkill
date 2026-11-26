@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "dev": "node --env-file=../packages/db/.env --import tsx --watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -18,12 +18,17 @@
     "@sopiskill/db": "^1.0.0",
     "@sopiskill/shared": "^1.0.0",
     "express": "5.3.0",
-    "helmet": "8.3.0"
+    "helmet": "8.3.0",
+    "jsonwebtoken": "^9.0.3"
   },
   "devDependencies": {
     "@types/express": "5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "24.19.2",
+    "@types/supertest": "^7.2.1",
+    "supertest": "^7.3.2",
     "tsx": "4.23.15",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vitest": "^4.1.12"
   }
 }
