@@ -17,6 +17,7 @@
   "dependencies": {
     "@sopiskill/db": "^1.0.0",
     "@sopiskill/shared": "^1.0.0",
+    "bcryptjs": "^3.0.3",
     "express": "5.3.0",
     "helmet": "8.3.0",
     "jsonwebtoken": "^9.0.3"
