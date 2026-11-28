@@ -9,6 +9,16 @@ export interface VerifiedAccessToken {
 
 function getJwtAccessSecret(): string {
     const secret = process.env.JWT_ACCESS_SECRET ?? process.env.JWT_SECRET;
+    if (
+        process.env.NODE_ENV !== "test" &&
+        (!secret || secret.trim().length < 32)
+    ) {
+        throw new AppError(
+            500,
+            "INTERNAL_ERROR",
+            "Lỗi cấu hình xác thực hệ thống",
+        );
+    }
     if (!secret || secret.trim().length === 0) {
         throw new AppError(
             500,
@@ -17,6 +27,24 @@ function getJwtAccessSecret(): string {
         );
     }
     return secret;
+}
+
+export function signAccessToken(userId: string): string {
+    const secret = getJwtAccessSecret();
+
+    try {
+        return jwt.sign({}, secret, {
+            algorithm: "HS256",
+            subject: userId,
+            expiresIn: 900,
+        });
+    } catch {
+        throw new AppError(
+            500,
+            "INTERNAL_ERROR",
+            "Không thể tạo token xác thực",
+        );
+    }
 }
 
 export function verifyAccessToken(token: string): VerifiedAccessToken {

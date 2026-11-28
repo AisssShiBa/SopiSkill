@@ -3,6 +3,7 @@ import helmet from "helmet";
 
 import { errorHandler, notFoundHandler } from "./middlewares/error-handler.js";
 import { requestIdMiddleware } from "./middlewares/request-id.js";
+import { authRouter } from "./routes/auth.routes.js";
 import { courseRouter } from "./routes/course.routes.js";
 import { healthRouter } from "./routes/health.routes.js";
 import { lessonQuestionRouter } from "./routes/lesson-question.routes.js";
@@ -20,6 +21,9 @@ app.use(express.json({ limit: "1mb" }));
 
 // Health routes
 app.use("/api/v1/health", healthRouter);
+
+// Authentication routes
+app.use("/api/v1/auth", authRouter);
 
 // Course routes
 app.use("/api/v1/courses", courseRouter);
