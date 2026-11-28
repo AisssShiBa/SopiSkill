@@ -5,6 +5,7 @@ import { errorHandler, notFoundHandler } from "./middlewares/error-handler.js";
 import { requestIdMiddleware } from "./middlewares/request-id.js";
 import { courseRouter } from "./routes/course.routes.js";
 import { healthRouter } from "./routes/health.routes.js";
+import { lessonQuestionRouter } from "./routes/lesson-question.routes.js";
 
 export const app = express();
 
@@ -22,6 +23,7 @@ app.use("/api/v1/health", healthRouter);
 
 // Course routes
 app.use("/api/v1/courses", courseRouter);
+app.use("/api/v1/lessons", lessonQuestionRouter);
 
 // Standardized 404 & error responses
 app.use(notFoundHandler);

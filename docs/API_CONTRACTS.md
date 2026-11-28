@@ -368,7 +368,7 @@ Không trả content đầy đủ ở endpoint danh sách. **Errors:** `404 COUR
 
 **Auth:** Bearer. **HTTP success:** `200 OK`.
 
-Trả graph của **Mapping Version hiện hành đã approved**; chỉ xem trước draft bằng API riêng khi được thiết kế sau. Một Course `ready` phải có bản approved tương ứng.
+Trả graph của **mapping hiện hành**, tức phiên bản có `versionNumber` lớn nhất trong số các mapping `approved` của Course. Chỉ trả cạnh tiên quyết thuộc phiên bản này. Một Course `ready` phải có bản approved tương ứng.
 
 ```json
 {
@@ -400,7 +400,7 @@ Trả graph của **Mapping Version hiện hành đã approved**; chỉ xem trư
 
 **Quy tắc DAG:** `skillId` là kỹ năng cần học; `prerequisiteSkillId` là kỹ năng phải nắm trước. Không có self-loop, cross-course hoặc chu trình. Validator chạy trước khi duyệt mapping, không dựa vào việc frontend vẽ graph để kiểm tra.
 
-**Errors:** `404 COURSE_NOT_FOUND`, `409 MAPPING_NOT_APPROVED`.
+**Errors:** `400 INVALID_INPUT`, `401 UNAUTHORIZED`, `404 COURSE_NOT_FOUND` (gồm Course của người khác), `409 MAPPING_NOT_APPROVED`.
 
 ---
 
@@ -410,7 +410,7 @@ Trả graph của **Mapping Version hiện hành đã approved**; chỉ xem trư
 
 **Auth:** Bearer. **HTTP success:** `200 OK`.
 
-Chỉ trả phiên bản câu hỏi **được phép làm**. API phải loại `answerKey`, `isCorrect`, đáp án đúng và giải thích sau chấm.
+Chỉ trả câu hỏi `active` thuộc Lesson được yêu cầu. Dùng `QuestionSkill` của **cùng mapping hiện hành với KC-01** để chọn phiên bản được phép làm. Mỗi `Question` có tối đa một `QuestionVersion` trong một mapping đã duyệt. API loại `answerKey`, `isCorrect`, đáp án đúng và giải thích sau chấm. Lesson hợp lệ chưa có câu hỏi phù hợp trả `200 { "data": [] }`.
 
 ```json
 {
@@ -432,7 +432,7 @@ Chỉ trả phiên bản câu hỏi **được phép làm**. API phải loại `
 
 `id` là `Question.id` (định danh logic), còn `questionVersionId` là bản nội dung cụ thể. **Không expose** bất kỳ khóa đáp án nào trong endpoint này. `type=single_choice` là loại câu hỏi MVP; phải bổ sung enum khi mở rộng.
 
-**Errors:** `404 LESSON_NOT_FOUND`, `409 COURSE_NOT_READY`.
+**Errors:** `400 INVALID_INPUT`, `401 UNAUTHORIZED`, `404 LESSON_NOT_FOUND` (gồm Lesson thuộc Course của người khác), `409 COURSE_NOT_READY`, `409 MAPPING_NOT_APPROVED` (Course `ready` thiếu mapping đã duyệt).
 
 ### QUIZ-02: `POST /api/v1/questions/:questionId/attempts`
 
